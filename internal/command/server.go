@@ -55,6 +55,7 @@ import (
 	"github.com/openbao/openbao/v2/internal/helper/testhelpers/teststorage"
 	"github.com/openbao/openbao/v2/internal/helper/useragent"
 	vaulthttp "github.com/openbao/openbao/v2/internal/http"
+	"github.com/openbao/openbao/v2/internal/kmip"
 	sr "github.com/openbao/openbao/v2/internal/serviceregistration"
 	"github.com/openbao/openbao/v2/internal/vault"
 	vaultseal "github.com/openbao/openbao/v2/internal/vault/seal"
@@ -1251,6 +1252,7 @@ func (c *ServerCommand) Run(args []string) int {
 
 	// Make sure we close all HTTP servers and listeners from this point on.
 	var servers []*http.Server
+	var kmipService *kmip.Service
 	listenerCloseFunc := func() {
 		var errs error
 		for _, srv := range servers {
@@ -1260,6 +1262,9 @@ func (c *ServerCommand) Run(args []string) int {
 		// double-closing it.
 		for _, ln := range lns[len(servers):] {
 			errs = errors.Join(errs, ln.Close())
+		}
+		if kmipService != nil {
+			errs = errors.Join(errs, kmipService.Close())
 		}
 		if errs != nil {
 			c.UI.Error(fmt.Sprintf("Error closing listeners: %v", errs))
@@ -1376,6 +1381,17 @@ func (c *ServerCommand) Run(args []string) int {
 	if err != nil {
 		c.UI.Error(err.Error())
 		return 1
+	}
+
+	// Start the KMIP listener, if configured. It serves the active node: its
+	// requests are executed by this core like any other client's.
+	if config.KMIP != nil && !c.flagTestServerConfig {
+		kmipService, err = kmip.Start(config.KMIP, core, c.logger.Named("kmip"))
+		if err != nil {
+			c.UI.Error(fmt.Sprintf("Error starting the KMIP listener: %s", err))
+			return 1
+		}
+		c.UI.Output(fmt.Sprintf("==> KMIP listener started on %s", kmipService.Addr()))
 	}
 
 	if c.flagTestServerConfig {

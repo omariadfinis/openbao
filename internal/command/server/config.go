@@ -30,6 +30,7 @@ import (
 	"github.com/openbao/openbao/v2/internal/helper/configutil"
 	"github.com/openbao/openbao/v2/internal/helper/osutil"
 	"github.com/openbao/openbao/v2/internal/helper/profiles"
+	"github.com/openbao/openbao/v2/internal/kmip/kmipconfig"
 )
 
 const (
@@ -52,6 +53,9 @@ type Config struct {
 	HAStorage *Storage `hcl:"-"`
 
 	ServiceRegistration *ServiceRegistration `hcl:"-"`
+
+	// KMIP configures the KMIP protocol listener, if any.
+	KMIP *kmipconfig.Config `hcl:"-"`
 
 	CacheSize                int  `hcl:"cache_size"`
 	DisableCache             bool `hcl:"-"`
@@ -520,6 +524,11 @@ func (c *Config) Merge(c2 *Config) *Config {
 	result.ServiceRegistration = c.ServiceRegistration
 	if c2.ServiceRegistration != nil {
 		result.ServiceRegistration = c2.ServiceRegistration
+	}
+
+	result.KMIP = c.KMIP
+	if c2.KMIP != nil {
+		result.KMIP = c2.KMIP
 	}
 
 	result.CacheSize = c.CacheSize
@@ -1058,6 +1067,17 @@ func ParseConfig(d, source string) (*Config, error) {
 		if err := parseServiceRegistration(result, o, "service_registration"); err != nil {
 			return nil, fmt.Errorf("error parsing 'service_registration': %w", err)
 		}
+	}
+
+	// Parse the KMIP listener stanza.
+	if o := list.Filter("kmip"); len(o.Items) > 0 {
+		delete(result.UnusedKeys, "kmip")
+		kmipConfig, err := kmipconfig.ParseConfig(list)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing 'kmip': %w", err)
+		}
+
+		result.KMIP = kmipConfig
 	}
 
 	// Parse self-initialization stanzas.
